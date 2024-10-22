@@ -49,11 +49,13 @@ A quick introduction to options that is high-level and by no means definitive bu
 7.  "At-the-money" options are where spot price = strike price.
 
 To help understand what has just been discussed, please look at the following payoff profiles for the options:
+
 ![image](https://github.com/user-attachments/assets/9ec07388-90a5-47f8-8edc-43d77586de3f)
 
 Now that we have some rudimentary understanding of European options, we can now look at how the prices are derived. This is where the famous Black-Scholes options pricing formula comes into play, the closed-form solution that forms the cornerstone of the entire derivatives market. 
 
 The Black-Scholes options pricing model is as follows:
+
 ![image](https://github.com/user-attachments/assets/221d801a-2225-4773-8a15-e29f4133415a)
 
 As you can tell the formula is calculated based on 7 parameters: current time _t_, current stock price _S_, option exercise _T_, strike _K_, interest rate _r_, dividend rate _γ_, and volatility _θ_. Since all parameters but volatility θ are directly observable in the financial markets, the volatility can be estimated by backing the Black-Scholes formula (also referred to as implied volatility), which can be explained as the market expectations of future volatility at a given strike.
@@ -61,6 +63,7 @@ As you can tell the formula is calculated based on 7 parameters: current time _t
 Since the implied volatility is derived based on the formula, it should be noted that the formula assumes that the stock prices follow a normal distribution of returns. Also based on the formula you can tell that the implied volatility is a scalar value, as such the implied volatility is the same across the strike dimension.
 
 As such, if you plotted the implied volatility against varying strike prices you would expect to see something flat. However, that is not the case. Instead, you see something more of a "smile" which implies that volatility increases as options contracts are more "out/in-of-the-money". The following image summarises this effect in the practical world. This was the case as traders realized that extreme events should be factored into options pricing.
+
 ![image](https://github.com/user-attachments/assets/d1c7116d-a758-4b09-b858-8364a2930bb9)
 
 In fact, near-term equity options and forex options lean more toward aligning with a volatility smile, whereas index options and long-term equity options tend to align more with a volatility skew/smirk. This is because OTM put options tend to be priced higher and hence higher implied volatility.
