@@ -8,6 +8,7 @@
   - [VIX Index](#vix-index)
   - [Options and Implied Volatility](#options-and-implied-volatility)
   - [Implied Volatility Calculation Methodology](#implied-volatility-calculation-methodology)
+  - [VIX Index Derivation](#vix-index-derivation)
   - [Tradeable Assets](#tradeable-assets)
 
 ## 1. Introduction
