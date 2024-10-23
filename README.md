@@ -78,7 +78,15 @@ Because the Black-Scholes formula doesn't allow for direct algebraic solving for
 
 ### VIX Index Derivation
 
-Now that we have a solid foundation of the concepts involved
+Now that we have a solid foundation of the concepts involving options, we can proceed with the the VIX Index calculation. Please find the following VIX formula:
+
+![image](https://github.com/user-attachments/assets/894e3ccc-6c18-4911-a072-0b1f13d25de0)
+
+A high-level summary of how to use this formula is as follows:
+
+_The CBOE VIX is calculated using the weighted prices of SPX at-the-money and out-of-the-money options with expiration dates between 23 days and 37 days in the future. As a result, there are two sets of options in the calculation. After interpolating the variance of these two sets of options, transforming it into a standard deviation, and multiplying everything by 100, you get the VIX Index value._
+
+But keep in mind that it is overly simplified, and recreating the index via code is no easy feat; hence, I would not be attempting to do so either. Instead, there is a really good article that I came across that explains step-by-step how to calculate VIX [here](https://financestu.com/vix-formula/#The_Initial_VIX_Formula).
 
 ### Tradeable Assets
 
@@ -93,3 +101,5 @@ _Data Sources:_
 | Proshares VIX Short-Term Futures ETF | VIXY | Both (Opening & Closing) |
 | Proshares Short VIX Short-Term Futures ETF | SVXY | Both (Opening & Closing) |
 | SPDR S&P 500 ETF Trust | SPY | Both (Opening & Closing) |
+
+> Note: If you really need to, please do your own research on the individual assets listed in the table above. It will not be gone through in this README file.
