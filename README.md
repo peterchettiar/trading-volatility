@@ -103,3 +103,33 @@ _Data Sources:_
 | SPDR S&P 500 ETF Trust | SPY | Both (Opening & Closing) |
 
 > Note: If you really need to, please do your own research on the individual assets listed in the table above. It will not be gone through in this README file.
+
+## 2. Trading Strategies
+
+Now that we have a working knowledge of the various concepts associated with the VIX index as well as its derivation, we can now move on to the crux of the research article; _The Trading Strategies_.
+
+There are three strategies tried and tested in this paper:
+1. Long short VIX (LSV)
+2. Hedged long short VIX (HLSV)
+3. Long SPY Long VIX (LSLV)
+
+The above strategies, which will be defined in detail in due course, are based on the thesis of the research article that was mentioned above in the introduction section. A couple of points regarding the development of the strategies:
+1. VIX futures index, just like the S&P 500 index, cannot be traded directly but via ETFs that replicate the movement of the index - As such the trading strategies will employ the use of the ETFs mentioned in Data Sources.
+2. However such ETFs are not suitable for "buy-and-hold" investments because of the negative roll yield - since the VIX futures term structure is normally in contango (with the rare exception of backwardation in times of increased volatility and risk), this refers to the longer-dated maturity being more expensive than the shorter-term futures and the spot price. Hence, whenever we roll over the contracts in a "buy-and-hold" strategy in a contango market, we cause the position to generate a negative return over time.
+3. Therefore, the trading strategies were designed in such a way as to reduce the negative effects of the contango trap.
+4. For exposure to long VIX positions we use the VIXY ETF, and for short VIX positions, the SVXY ETF. For exposure to the S&P 500 long and short positions, the SPY ETF will be used.
+5. Every trade assumes fees (brokerage: 0.15%, slippage: 0.04%, and management fee: 0.85% annually).
+
+## Long short VIX (LSV)
+
+Steps to determine the positions that need to be entered into / exited:
+1. Start by calculating the Basis for the day ([VIX futures opening price - VIX spot opening price] - 1) - this is an indicator for  buy and sell signals when the VIX term structure is either in contango or backwardation (basis < 0, VIX term structure in backwardation, and contango if basis > 0).
+2. If the basis for the day signals backwardation (i.e. near-term maturities are priced higher than longer-dated maturities):
+   - LSV enters a long position in VIXY at the market open, but if there is already an open position the trader can proceed to the next day without any execution.
+   - But before opening any long VIXY position, we need to check for any open long SVXY - if there is, close it before purchasing a long VIXY.
+3. If the basis is in contango at the beginning of the trading day:
+  - a long SVXY position is entered at the market open, unless a long SVXY position is already open. In that case, trader can proceed to next day.
+  - Again before going long on the SVXY position (if you don't already have an open position), check if you have any long position in VIXY, close before going long on SVXY 
+
+The summary of the LSV Strategy is as follows:
+![image](https://github.com/user-attachments/assets/1609080b-7035-4dcc-9850-2fdb69be0b5f)
