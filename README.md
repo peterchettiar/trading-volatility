@@ -10,6 +10,8 @@
   - [Implied Volatility Calculation Methodology](#implied-volatility-calculation-methodology)
   - [VIX Index Derivation](#vix-index-derivation)
   - [Tradeable Assets](#tradeable-assets)
+- [2. Trading Strategies](#2-trading-strategies)
+  - [Long short VIX (LSV)](#long-short-vix-lsv)
 
 ## 1. Introduction
 
@@ -128,8 +130,9 @@ Steps to determine the positions that need to be entered into / exited:
    - LSV enters a long position in VIXY at the market open, but if there is already an open position the trader can proceed to the next day without any execution.
    - But before opening any long VIXY position, we need to check for any open long SVXY - if there is, close it before purchasing a long VIXY.
 3. If the basis is in contango at the beginning of the trading day:
-  - a long SVXY position is entered at the market open, unless a long SVXY position is already open. In that case, trader can proceed to next day.
-  - Again before going long on the SVXY position (if you don't already have an open position), check if you have any long position in VIXY, close before going long on SVXY 
+   - a long SVXY position is entered at the market open, unless a long SVXY position is already open. In that case, trader can proceed to next day.
+   - Again before going long on the SVXY position (if you don't already have an open position), check if you have any long position in VIXY, close before going long on SVXY 
 
 The summary of the LSV Strategy is as follows:
+
 ![image](https://github.com/user-attachments/assets/1609080b-7035-4dcc-9850-2fdb69be0b5f)
