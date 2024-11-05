@@ -125,7 +125,7 @@ The above strategies, which will be defined in detail in due course, are based o
 ## Long short VIX (LSV)
 
 Steps to determine the positions that need to be entered into / exited:
-1. Start by calculating the Basis for the day ([VIX futures opening price - VIX spot opening price] - 1) - this is an indicator for  buy and sell signals when the VIX term structure is either in contango or backwardation (basis < 0, VIX term structure in backwardation, and contango if basis > 0).
+1. Start by calculating the Basis for the day ([VIX futures opening price / VIX spot opening price] - 1) - this is an indicator for  buy and sell signals when the VIX term structure is either in contango or backwardation (basis < 0, VIX term structure in backwardation, and contango if basis > 0).
 2. If the basis for the day signals backwardation (i.e. near-term maturities are priced higher than longer-dated maturities):
    - LSV enters a long position in VIXY at the market open, but if there is already an open position the trader can proceed to the next day without any execution.
    - But before opening any long VIXY position, we need to check for any open long SVXY - if there is, close it before purchasing a long VIXY.
