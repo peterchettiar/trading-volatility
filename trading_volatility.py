@@ -1,3 +1,17 @@
+"""
+This project builds a modular library of volatility trading strategies based on 
+concepts from the research paper "Trading Strategies Based on the VIX Term Structure." 
+
+Focused on VIX term structure strategies, this project aims to reproduce and expand
+on the paper’s findings, making it easier to analyze, test, and integrate these 
+strategies into an algorithmic trading setup. The modular design allows for
+individual strategy adaptation and offers a foundation for further development in 
+volatility-based algorithmic trading.
+
+For more information, refer to the original research paper:
+https://github.com/peterchettiar/trading-volatility/blob/main/FULLTEXT01.pdf.
+"""
+
 import logging
 import yfinance as yf
 import pandas as pd
@@ -13,8 +27,9 @@ class TradingVolatility:
 
     def __init__(self, tickers_list: list | dict):
         self.tickers_list = tickers_list
+        self.data = None
 
-    def _manual_upload(self, filepath: str, col_rename: str):
+    def __manual_upload(self, filepath: str, col_rename: str):
         manual_upload = (
             pd.read_csv(filepath, usecols=["Date", "Open"], parse_dates=["Date"])
             .sort_values(by="Date", ascending=True)
@@ -24,7 +39,7 @@ class TradingVolatility:
 
         return manual_upload
 
-    def _get_data_tickers_dict(self, start_date, end_date):
+    def __get_data_tickers_dict(self, start_date, end_date):
         tickers_dict = self.tickers_list
 
         stock_data = pd.DataFrame()
@@ -47,7 +62,7 @@ class TradingVolatility:
 
         return stock_data
 
-    def _get_data_tickers_list(self, start_date, end_date):
+    def __get_data_tickers_list(self, start_date, end_date):
         tickers_list = self.tickers_list
 
         stock_data_df = pd.DataFrame()
@@ -73,21 +88,23 @@ class TradingVolatility:
 
     def get_data(
         self, start_date: str, end_date: str, col_rename: str, manual_loading=None
-    ):
+    ) -> pd.DataFrame:
         """Function to merge historical data from yahoo finance with manual uploads"""
         if manual_loading is not None and manual_loading.endswith(".csv"):
-            manual_upload = self._manual_upload(manual_loading, col_rename)
+            manual_upload = self.__manual_upload(manual_loading, col_rename)
             logger.info("File loaded successfully.")
         else:
             raise ValueError("File path is either None or not a CSV file.")
 
         if isinstance(self.tickers_list, dict):
-            yf_data = self._get_data_tickers_dict(
+            yf_data = self.__get_data_tickers_dict(
                 start_date=start_date, end_date=end_date
             )
         else:
-            yf_data = self._get_data_tickers_list(
+            yf_data = self.__get_data_tickers_list(
                 start_date=start_date, end_date=end_date
             )
 
-        return yf_data.join(manual_upload[col_rename])
+        self.data = yf_data.join(manual_upload[col_rename])
+
+        return self.data
