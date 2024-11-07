@@ -15,6 +15,7 @@ https://github.com/peterchettiar/trading-volatility/blob/main/FULLTEXT01.pdf.
 import logging
 import yfinance as yf
 import pandas as pd
+import numpy as np
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -23,13 +24,22 @@ logger = logging.getLogger(__name__)
 
 
 class TradingVolatility:
-    """This module defines the various strategies prescribed by the research article"""
+    """This class defines a modular framework for replicating VIX-based trading strategies"""
 
-    def __init__(self, tickers_list: list | dict):
-        self.tickers_list = tickers_list
+    def __init__(
+        self,
+        volatility_indices: list,
+        volatility_assets: list,
+    ):
+        """Initializes the TradingVolatility instance with specified tickers"""
+
+        self.volatility_assets = volatility_assets
+        self.volatility_indices = volatility_indices
         self.data = None
 
     def __manual_upload(self, filepath: str, col_rename: str):
+        """Loads a CSV file with a date and price column for a manual data input"""
+
         manual_upload = (
             pd.read_csv(filepath, usecols=["Date", "Open"], parse_dates=["Date"])
             .sort_values(by="Date", ascending=True)
@@ -39,45 +49,42 @@ class TradingVolatility:
 
         return manual_upload
 
-    def __get_data_tickers_dict(self, start_date, end_date):
-        tickers_dict = self.tickers_list
-
-        stock_data = pd.DataFrame()
-
-        for key, value in tickers_dict.items():
-            hist_price = yf.download(key, start=start_date, end=end_date)[value]
-
-            if not hist_price.empty:
-                if stock_data.empty:
-                    stock_data = hist_price
-                else:
-                    stock_data = pd.merge(
-                        stock_data, hist_price, left_index=True, right_index=True
-                    )
-
-        stock_data.index = stock_data.index.tz_convert(None)
-        stock_data.columns = [
-            f"{ticker.lower()}_{pos.lower()}" for pos, ticker in stock_data.columns
-        ]
-
-        return stock_data
-
     def __get_data_tickers_list(self, start_date, end_date):
-        tickers_list = self.tickers_list
+        """Fetches historical open and close prices for tickers in list"""
+
+        tickers_list = self.volatility_assets + self.volatility_indices
 
         stock_data_df = pd.DataFrame()
 
         for ticker in tickers_list:
-            hist_price_df = yf.download(ticker, start=start_date, end=end_date)[
-                ["Open", "Close"]
-            ]
-            if not hist_price_df.empty:
-                if stock_data_df.empty:
-                    stock_data_df = hist_price_df
-                else:
-                    stock_data_df = pd.merge(
-                        stock_data_df, hist_price_df, left_index=True, right_index=True
-                    )
+            if ticker in self.volatility_assets:
+                hist_price_df = yf.download(ticker, start=start_date, end=end_date)[
+                    ["Open", "Close"]
+                ]
+                if not hist_price_df.empty:
+                    if stock_data_df.empty:
+                        stock_data_df = hist_price_df
+                    else:
+                        stock_data_df = pd.merge(
+                            stock_data_df,
+                            hist_price_df,
+                            left_index=True,
+                            right_index=True,
+                        )
+            else:
+                hist_price_df = yf.download(ticker, start=start_date, end=end_date)[
+                    ["Open"]
+                ]
+                if not hist_price_df.empty:
+                    if stock_data_df.empty:
+                        stock_data_df = hist_price_df
+                    else:
+                        stock_data_df = pd.merge(
+                            stock_data_df,
+                            hist_price_df,
+                            left_index=True,
+                            right_index=True,
+                        )
 
         stock_data_df.index = stock_data_df.index.tz_convert(None)
         stock_data_df.columns = [
@@ -90,21 +97,113 @@ class TradingVolatility:
         self, start_date: str, end_date: str, col_rename: str, manual_loading=None
     ) -> pd.DataFrame:
         """Function to merge historical data from yahoo finance with manual uploads"""
+
         if manual_loading is not None and manual_loading.endswith(".csv"):
             manual_upload = self.__manual_upload(manual_loading, col_rename)
             logger.info("File loaded successfully.")
         else:
             raise ValueError("File path is either None or not a CSV file.")
 
-        if isinstance(self.tickers_list, dict):
-            yf_data = self.__get_data_tickers_dict(
-                start_date=start_date, end_date=end_date
-            )
-        else:
-            yf_data = self.__get_data_tickers_list(
-                start_date=start_date, end_date=end_date
-            )
+        yf_data = self.__get_data_tickers_list(start_date=start_date, end_date=end_date)
 
         self.data = yf_data.join(manual_upload[col_rename])
 
         return self.data
+
+    def __daily_basis(
+        self, vol_future_ticker: str, vol_spot_ticker: str
+    ) -> pd.DataFrame:
+        """Calculates the daily basis for two indices to determine contango or backwardation"""
+
+        self.data["basis"] = self.data[[vol_future_ticker, vol_spot_ticker]].apply(
+            lambda x: (x[0] / x[1]) - 1, axis=1
+        )
+
+        return self.data
+
+    def _lsv_signals(
+        self,
+        long_vix_asset: str,
+        short_vix_asset: str,
+        future_index_ticker: str,
+        spot_index_ticker: str,
+    ) -> pd.DataFrame:
+        """Generating the signals for the Long-Short Strategy"""
+
+        # Initialise signals dictionary with the keys based on asset names
+        asset_signals = [
+            f"{asset.lower()}_{signal_type}_signal"
+            for asset in [long_vix_asset, short_vix_asset]
+            for signal_type in ["buy", "sell"]
+        ]
+        signals = {signal: [] for signal in asset_signals}
+
+        # Track the position of each asset
+        positions = {"long_vix_asset": False, "short_vix_asset": False}
+
+        # Column names for asset open prices
+        long_vix_asset_open = f"{long_vix_asset.lower()}_open"
+        short_vix_asset_open = f"{short_vix_asset.lower()}_open"
+
+        df = self.__daily_basis(
+            vol_future_ticker=f"{future_index_ticker.lower()}_open",
+            vol_spot_ticker=f"{spot_index_ticker.lower()}_open",
+        )
+
+        for index in range(len(df)):
+            # Check for negative basis (buy LONG_VIX_ASSET condition)
+            if df["basis"][index] < 0:
+                if not positions["long_vix_asset"]:
+                    # If neither is long, open LONG_VIX_asset
+                    if not positions["short_vix_asset"]:
+                        signals[f"{long_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][long_vix_asset_open]
+                        )
+                    else:
+                        # If SHORT_VIX_ASSET is open, close it and open position in LONG_VIX_ASSET
+                        signals[f"{short_vix_asset.lower()}_sell_signal"].append(
+                            df.iloc[index][short_vix_asset_open]
+                        )
+                        signals[f"{long_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][long_vix_asset_open]
+                        )
+                        positions["short_vix_asset"] = False
+
+                    positions["long_vix_asset"] = True
+
+                else:
+                    # Maintain LONG_VIX_ASSET, no new signals
+                    signals[f"{long_vix_asset.lower()}_buy_signal"].append(np.nan)
+
+            else:
+                # Check for positive basis
+                if not positions["short_vix_asset"]:
+                    if not positions["long_vix_asset"]:
+                        signals[f"{short_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][short_vix_asset_open]
+                        )
+                    else:
+                        # If LONG_VIX_ASSET is open, close it and open position in SHORT_VIX_ASSET
+                        signals[f"{long_vix_asset.lower()}_sell_signal"].append(
+                            df.iloc[index][long_vix_asset_open]
+                        )
+                        signals[f"{short_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][short_vix_asset_open]
+                        )
+                        positions["long_vix_asset"] = False
+
+                    positions["short_vix_asset"] = True
+
+                else:
+                    # Maintain SHORT_VIX_ASSET, no new signals
+                    signals[f"{short_vix_asset.lower()}_buy_signal"].append(np.nan)
+
+            # Append NaNs for unused signals in each step
+            for key, value in signals.items():
+                if len(value) < index + 1:
+                    signals[key].append(np.nan)
+
+        # Create DataFrane with signals
+        res = pd.DataFrame(signals, index=df.index)
+
+        return res
