@@ -13,6 +13,7 @@ https://github.com/peterchettiar/trading-volatility/blob/main/FULLTEXT01.pdf.
 """
 
 import logging
+import math
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -121,7 +122,7 @@ class TradingVolatility:
 
         return self.data
 
-    def _lsv_signals(
+    def __lsv_signals(
         self,
         long_vix_asset: str,
         short_vix_asset: str,
@@ -133,8 +134,8 @@ class TradingVolatility:
         # Initialise signals dictionary with the keys based on asset names
         asset_signals = [
             f"{asset.lower()}_{signal_type}_signal"
+            for signal_type in ["sell", "buy"]
             for asset in [long_vix_asset, short_vix_asset]
-            for signal_type in ["buy", "sell"]
         ]
         signals = {signal: [] for signal in asset_signals}
 
@@ -205,5 +206,110 @@ class TradingVolatility:
 
         # Create DataFrane with signals
         res = pd.DataFrame(signals, index=df.index)
+
+        return res
+
+    def lsv_strategy(
+        self,
+        intial_capital: float,
+        long_vix_asset: str,
+        short_vix_asset: str,
+        future_index_ticker: str,
+        spot_index_ticker: str,
+    ) -> pd.DataFrame:
+        """Simulate LSV trading strategy based on buy and sell signals in the DataFrame"""
+
+        # Loading the signals dataframe
+        signals_df = self.__lsv_signals(
+            long_vix_asset=long_vix_asset,
+            short_vix_asset=short_vix_asset,
+            future_index_ticker=future_index_ticker,
+            spot_index_ticker=spot_index_ticker,
+        )
+
+        # Initial values
+        available_cash = intial_capital
+        max_holding = 0
+        current_asset = None
+        sale_proceeds = 0.00
+        holdings_history, cash_history, asset_history = (
+            [],
+            [],
+            [],
+        )
+
+        # Execute first day trade from dataframe
+        first_trade_dict = {
+            key: value
+            for key, value in signals_df.iloc[0].to_dict().items()
+            if not np.isnan(value)
+        }
+
+        first_trade_key = list(first_trade_dict)[0]
+        max_holding = (
+            math.floor(available_cash / first_trade_dict[first_trade_key] * 100) / 100
+        )
+        available_cash -= max_holding * first_trade_dict[first_trade_key]
+        current_asset = first_trade_key[:4]
+
+        holdings_history.append(max_holding)
+        cash_history.append(available_cash)
+        asset_history.append(current_asset)
+
+        for index in range(1, len(signals_df)):
+            # Convert each row into a dictionary object
+            execude_trades = {
+                key: value
+                for key, value in signals_df.iloc[index].to_dict().items()
+                if not np.isnan(value)
+            }
+
+            # Non-empty dictionary means trade signal available
+            if execude_trades:
+                for signal, open_price in execude_trades.items():
+                    # Sell current asset SHORT_VIX_ASSET or LONG_VIX_ASSET
+                    if (short_vix_asset or long_vix_asset) and "sell" in signal:
+                        sale_proceeds += max_holding * open_price
+                        max_holding = 0
+                        available_cash += sale_proceeds
+                        sale_proceeds = 0.00
+
+                    # Buy LONG_VIX_ASSET or SHORT_VIX_ASSET - counter trade
+                    else:
+                        max_holding = (
+                            math.floor((available_cash / open_price) * 100) / 100
+                        )
+                        available_cash -= max_holding * open_price
+                        current_asset = signal[:4]
+
+                holdings_history.append(max_holding)
+                cash_history.append(available_cash)
+                asset_history.append(current_asset)
+
+            # Empty dictionary, hence no trade for the trading day
+            else:
+                holdings_history.append(max_holding)
+                cash_history.append(available_cash)
+                asset_history.append(current_asset)
+
+        res = pd.DataFrame(
+            list(zip(asset_history, holdings_history, cash_history)),
+            index=signals_df.index,
+            columns=[
+                "asset_history",
+                "holding_quantity",
+                "available_cash",
+            ],
+        )
+
+        res["asset_close_price"] = res.apply(
+            lambda x: self.data.loc[x.name][f"{x["asset_history"]}_close"], axis=1
+        )
+        res["asset_value"] = res["asset_close_price"] * res["holding_quantity"]
+        res["portfolio_value"] = res["asset_value"] + res["available_cash"]
+        res["portfolio_returns"] = res["portfolio_value"].pct_change()
+        res["portfolio_cumulative_returns"] = (
+            1 + res["portfolio_returns"]
+        ).cumprod() - 1
 
         return res
