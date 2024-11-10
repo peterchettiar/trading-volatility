@@ -303,7 +303,7 @@ class TradingVolatility:
         )
 
         res["asset_close_price"] = res.apply(
-            lambda x: self.data.loc[x.name][f"{x["asset_history"]}_close"], axis=1
+            lambda x: self.data.loc[x.name][f"{x['asset_history']}_close"], axis=1
         )
         res["asset_value"] = res["asset_close_price"] * res["holding_quantity"]
         res["portfolio_value"] = res["asset_value"] + res["available_cash"]
@@ -311,5 +311,102 @@ class TradingVolatility:
         res["portfolio_cumulative_returns"] = (
             1 + res["portfolio_returns"]
         ).cumprod() - 1
+
+        return res
+
+    def __hlsv_signals(
+        self,
+        long_vix_asset: str,
+        short_vix_asset: str,
+        hedge_asset: str,
+        future_index_ticker: str,
+        spot_index_ticker: str,
+    ) -> pd.DataFrame:
+        """Generating the signals for the Hedged Long-Short Strategy"""
+
+        # Initialise signals dictionary with the keys based on asset names
+        asset_signals = [
+            f"{asset.lower()}_{signal_type}_signal"
+            for signal_type in ["sell", "buy"]
+            for asset in [long_vix_asset, short_vix_asset, hedge_asset]
+        ]
+        signals = {signal: [] for signal in asset_signals}
+
+        # Track the position of each asset
+        positions = {
+            "long_vix_asset": False,
+            "short_vix_asset": False,
+            "long_hedge_asset": False,
+            "short_hedge_asset": False,
+        }
+
+        # Column names for asset open prices
+        long_vix_asset_open = f"{long_vix_asset.lower()}_open"
+        short_vix_asset_open = f"{short_vix_asset.lower()}_open"
+        hedge_asset_open = f"{hedge_asset.lower()}_open"
+
+        df = self.__daily_basis(
+            vol_future_ticker=f"{future_index_ticker.lower()}_open",
+            vol_spot_ticker=f"{spot_index_ticker.lower()}_open",
+        )
+
+        for index in range(len(df)):
+            # Check for negative basis (buy LONG_VIX_ASSET condition)
+            if df["basis"][index] < 0:
+                if (
+                    not positions["long_vix_asset"]
+                    and not positions["long_hedge_asset"]
+                ):
+                    # If neither is long, open LONG_VIX_asset
+                    if not positions["short_vix_asset"]:
+                        signals[f"{long_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][long_vix_asset_open]
+                        )
+                    else:
+                        # If SHORT_VIX_ASSET is open, close it and open position in LONG_VIX_ASSET
+                        signals[f"{short_vix_asset.lower()}_sell_signal"].append(
+                            df.iloc[index][short_vix_asset_open]
+                        )
+                        signals[f"{long_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][long_vix_asset_open]
+                        )
+                        positions["short_vix_asset"] = False
+
+                    positions["long_vix_asset"] = True
+
+                else:
+                    # Maintain LONG_VIX_ASSET, no new signals
+                    signals[f"{long_vix_asset.lower()}_buy_signal"].append(np.nan)
+
+            else:
+                # Check for positive basis
+                if not positions["short_vix_asset"]:
+                    if not positions["long_vix_asset"]:
+                        signals[f"{short_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][short_vix_asset_open]
+                        )
+                    else:
+                        # If LONG_VIX_ASSET is open, close it and open position in SHORT_VIX_ASSET
+                        signals[f"{long_vix_asset.lower()}_sell_signal"].append(
+                            df.iloc[index][long_vix_asset_open]
+                        )
+                        signals[f"{short_vix_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][short_vix_asset_open]
+                        )
+                        positions["long_vix_asset"] = False
+
+                    positions["short_vix_asset"] = True
+
+                else:
+                    # Maintain SHORT_VIX_ASSET, no new signals
+                    signals[f"{short_vix_asset.lower()}_buy_signal"].append(np.nan)
+
+            # Append NaNs for unused signals in each step
+            for key, value in signals.items():
+                if len(value) < index + 1:
+                    signals[key].append(np.nan)
+
+        # Create DataFrane with signals
+        res = pd.DataFrame(signals, index=df.index)
 
         return res
