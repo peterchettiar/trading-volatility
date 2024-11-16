@@ -14,6 +14,7 @@ https://github.com/peterchettiar/trading-volatility/blob/main/FULLTEXT01.pdf.
 
 import logging
 import math
+import re
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -37,6 +38,14 @@ class TradingVolatility:
         self.volatility_assets = volatility_assets
         self.volatility_indices = volatility_indices
         self.data = None
+
+    def __extract_asset_name(self, signal_string):
+        """Extracts the asset name from a signal string using regex"""
+
+        match = re.search(r"^(.*?)(_sell_signal|_buy_signal)$", signal_string)
+        if match:
+            return match.group(1)
+        return None
 
     def __manual_upload(self, filepath: str, col_rename: str):
         """Loads a CSV file with a date and price column for a manual data input"""
@@ -250,7 +259,7 @@ class TradingVolatility:
             math.floor(available_cash / first_trade_dict[first_trade_key] * 100) / 100
         )
         available_cash -= max_holding * first_trade_dict[first_trade_key]
-        current_asset = first_trade_key[:4]
+        current_asset = self.__extract_asset_name(first_trade_key)
 
         holdings_history.append(max_holding)
         cash_history.append(available_cash)
@@ -280,7 +289,7 @@ class TradingVolatility:
                             math.floor((available_cash / open_price) * 100) / 100
                         )
                         available_cash -= max_holding * open_price
-                        current_asset = signal[:4]
+                        current_asset = self.__extract_asset_name(signal)
 
                 holdings_history.append(max_holding)
                 cash_history.append(available_cash)
@@ -328,7 +337,12 @@ class TradingVolatility:
         asset_signals = [
             f"{asset.lower()}_{signal_type}_signal"
             for signal_type in ["sell", "buy"]
-            for asset in [long_vix_asset, short_vix_asset, hedge_asset]
+            for asset in [
+                long_vix_asset,
+                short_vix_asset,
+                f"long_{hedge_asset}",
+                f"short_{hedge_asset}",
+            ]
         ]
         signals = {signal: [] for signal in asset_signals}
 
@@ -358,48 +372,81 @@ class TradingVolatility:
                     and not positions["long_hedge_asset"]
                 ):
                     # If neither is long, open LONG_VIX_asset
-                    if not positions["short_vix_asset"]:
+                    if (
+                        not positions["short_vix_asset"]
+                        and not positions["short_hedge_asset"]
+                    ):
                         signals[f"{long_vix_asset.lower()}_buy_signal"].append(
                             df.iloc[index][long_vix_asset_open]
+                        )
+                        signals[f"long_{hedge_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][hedge_asset_open]
                         )
                     else:
                         # If SHORT_VIX_ASSET is open, close it and open position in LONG_VIX_ASSET
                         signals[f"{short_vix_asset.lower()}_sell_signal"].append(
                             df.iloc[index][short_vix_asset_open]
                         )
+                        signals[f"short_{hedge_asset.lower()}_sell_signal"].append(
+                            df.iloc[index][hedge_asset_open]
+                        )
                         signals[f"{long_vix_asset.lower()}_buy_signal"].append(
                             df.iloc[index][long_vix_asset_open]
                         )
+                        signals[f"long_{hedge_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][hedge_asset_open]
+                        )
                         positions["short_vix_asset"] = False
+                        positions["short_hedge_asset"] = False
 
                     positions["long_vix_asset"] = True
+                    positions["long_hedge_asset"] = True
 
                 else:
                     # Maintain LONG_VIX_ASSET, no new signals
                     signals[f"{long_vix_asset.lower()}_buy_signal"].append(np.nan)
+                    signals[f"long_{hedge_asset.lower()}_buy_signal"].append(np.nan)
 
             else:
                 # Check for positive basis
-                if not positions["short_vix_asset"]:
-                    if not positions["long_vix_asset"]:
+                if (
+                    not positions["short_vix_asset"]
+                    and not positions["short_hedge_asset"]
+                ):
+                    if (
+                        not positions["long_vix_asset"]
+                        and not positions["long_hedge_asset"]
+                    ):
                         signals[f"{short_vix_asset.lower()}_buy_signal"].append(
                             df.iloc[index][short_vix_asset_open]
+                        )
+                        signals[f"short_{hedge_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][hedge_asset_open]
                         )
                     else:
                         # If LONG_VIX_ASSET is open, close it and open position in SHORT_VIX_ASSET
                         signals[f"{long_vix_asset.lower()}_sell_signal"].append(
                             df.iloc[index][long_vix_asset_open]
                         )
+                        signals[f"long_{hedge_asset.lower()}_sell_signal"].append(
+                            df.iloc[index][hedge_asset_open]
+                        )
                         signals[f"{short_vix_asset.lower()}_buy_signal"].append(
                             df.iloc[index][short_vix_asset_open]
                         )
+                        signals[f"short_{hedge_asset.lower()}_buy_signal"].append(
+                            df.iloc[index][hedge_asset_open]
+                        )
                         positions["long_vix_asset"] = False
+                        positions["long_hedge_asset"] = False
 
                     positions["short_vix_asset"] = True
+                    positions["short_hedge_asset"] = True
 
                 else:
                     # Maintain SHORT_VIX_ASSET, no new signals
                     signals[f"{short_vix_asset.lower()}_buy_signal"].append(np.nan)
+                    signals[f"short_{hedge_asset.lower()}_buy_signal"].append(np.nan)
 
             # Append NaNs for unused signals in each step
             for key, value in signals.items():
@@ -408,5 +455,182 @@ class TradingVolatility:
 
         # Create DataFrane with signals
         res = pd.DataFrame(signals, index=df.index)
+
+        return res
+
+    def hlsv_strategy(
+        self,
+        intial_capital: float,
+        long_vix_asset: str,
+        short_vix_asset: str,
+        hedge_asset: str,
+        future_index_ticker: str,
+        spot_index_ticker: str,
+    ) -> pd.DataFrame:
+        """Simulate HLSV trading strategy based on buy and sell signals in the DataFrame"""
+
+        # Loading the signals dataframe
+        signals_df = self.__hlsv_signals(
+            long_vix_asset=long_vix_asset,
+            short_vix_asset=short_vix_asset,
+            hedge_asset=hedge_asset,
+            future_index_ticker=future_index_ticker,
+            spot_index_ticker=spot_index_ticker,
+        )
+
+        # Initial values
+        available_cash = intial_capital
+        asset_holding = 0
+        hedge_holding = 0
+        current_asset = None
+        current_hedge = None
+        sale_proceeds = 0.00
+        hedge_allocation = 0.5  # 50% allocation as hedge
+        asset_history, asset_holdings, hedge_history, hedge_holdings, cash_history = (
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+
+        # Execute first day trade from dataframe
+        first_trade_dict = {
+            key: value
+            for key, value in signals_df.iloc[0].to_dict().items()
+            if not np.isnan(value)
+        }
+
+        asset_key = list(first_trade_dict)[0]
+        asset_holding = (
+            math.floor(
+                (available_cash * hedge_allocation) / first_trade_dict[asset_key] * 100
+            )
+            / 100
+        )
+        available_cash -= asset_holding * first_trade_dict[asset_key]
+        current_asset = self.__extract_asset_name(asset_key)
+
+        hedge_key = list(first_trade_dict)[
+            1
+        ]  # We know this is a short spy position, hence we will hardcode this
+        hedge_holding = (
+            math.floor(
+                (available_cash * -hedge_allocation) / first_trade_dict[hedge_key] * 100
+            )
+            / 100
+        )
+        available_cash -= (
+            hedge_holding * first_trade_dict[hedge_key]
+        )  # Positive cashflow for opening short position
+        current_hedge = self.__extract_asset_name(hedge_key)
+
+        asset_history.append(current_asset)
+        asset_holdings.append(asset_holding)
+        hedge_history.append(current_hedge)
+        hedge_holdings.append(hedge_holding)
+        cash_history.append(available_cash)
+
+        for index in range(1, len(signals_df)):
+            # Convert each row into a dictionary object
+            execude_trades = {
+                key: value
+                for key, value in signals_df.iloc[index].to_dict().items()
+                if not np.isnan(value)
+            }
+
+            # Non-empty dictionary means trade signal available
+            if execude_trades:
+                for signal, open_price in execude_trades.items():
+                    # Sell current asset SHORT_VIX_ASSET/LONG_VIX)_ASSET
+                    if (long_vix_asset or short_vix_asset) and "sell" in signal:
+                        sale_proceeds += asset_holding * open_price
+                        available_cash += sale_proceeds
+                        asset_holding = 0
+                        sale_proceeds = 0.00
+                        current_asset = None
+
+                    # Closing positions in hedge asset - cash negative for short position
+                    elif hedge_asset and "sell" in signal:
+                        sale_proceeds += hedge_holding * open_price
+                        available_cash += sale_proceeds
+                        hedge_holding = 0
+                        sale_proceeds = 0.00
+                        current_hedge = None
+
+                    # Open positions in hedge asset
+                    elif hedge_asset and "buy" in signal:
+                        # Open short position in hedge asset
+                        if "short" in signal:
+                            hedge_holding = (
+                                math.floor(
+                                    (available_cash * -hedge_allocation)
+                                    / open_price
+                                    * 100
+                                )
+                                / 100
+                            )
+                            available_cash -= (
+                                hedge_holding * open_price
+                            )  # Positive cashflow for opening short position
+                            current_hedge = self.__extract_asset_name(signal)
+
+                        else:
+                            hedge_holding = (
+                                math.floor(
+                                    (available_cash * hedge_allocation)
+                                    / open_price
+                                    * 100
+                                )
+                                / 100
+                            )
+                            available_cash -= (
+                                hedge_holding * open_price
+                            )  # Positive cashflow for opening short position
+                            current_hedge = self.__extract_asset_name(signal)
+
+                    else:
+                        asset_holding = (
+                            math.floor(
+                                (available_cash * hedge_allocation) / open_price * 100
+                            )
+                            / 100
+                        )
+                        available_cash -= asset_holding * open_price
+                        current_asset = self.__extract_asset_name(signal)
+
+                    asset_history.append(current_asset)
+                    asset_holdings.append(asset_holding)
+                    hedge_history.append(current_hedge)
+                    hedge_holdings.append(hedge_holding)
+                    cash_history.append(available_cash)
+
+            else:
+                # Empty dictionary, hence no trade for the trading day
+                asset_history.append(current_asset)
+                asset_holdings.append(asset_holding)
+                hedge_history.append(current_hedge)
+                hedge_holdings.append(hedge_holding)
+                cash_history.append(available_cash)
+
+        res = pd.DataFrame(
+            list(
+                zip(
+                    asset_history,
+                    asset_holdings,
+                    hedge_history,
+                    hedge_holdings,
+                    cash_history,
+                )
+            ),
+            index=signals_df.index,
+            columns=[
+                "asset_history",
+                "asset_quantity",
+                "hedge_history",
+                "hedge_quantity",
+                "available_cash",
+            ],
+        )
 
         return res
