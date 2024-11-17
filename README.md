@@ -106,6 +106,8 @@ _Data Sources:_
 
 > Note: If you really need to, please do your own research on the individual assets listed in the table above. It will not be gone through in this README file.
 
+**Disclaimer**: The two ETFs that are to be used in our trading strategies are meant to give us long and short exposure to VIX Futures. This should not be traded individually as a "buy-and-hold" strategy. This is because the underlying assets in the ETF are actual futures contracts that are being rolled over everytime the contract expires, hence the negative roll-yield effect if term structure of the VIX Futures in contango. Therefore, it would be advised to understand more on `VIXY` and `SVXY`, and realise that these are assets that need to be actively managed as well as to be intended for short-term use.
+
 ## 2. Trading Strategies
 
 Now that we have a working knowledge of the various concepts associated with the VIX index as well as its derivation, we can now move on to the crux of the research article; _The Trading Strategies_.
