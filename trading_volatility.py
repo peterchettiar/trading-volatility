@@ -494,6 +494,11 @@ class TradingVolatility:
             [],
         )
 
+        asset_cash, hedge_cash = (
+            available_cash * hedge_allocation,
+            available_cash * hedge_allocation,
+        )
+
         # Execute first day trade from dataframe
         first_trade_dict = {
             key: value
@@ -502,28 +507,20 @@ class TradingVolatility:
         }
 
         asset_key = list(first_trade_dict)[0]
-        asset_holding = (
-            math.floor(
-                (available_cash * hedge_allocation) / first_trade_dict[asset_key] * 100
-            )
-            / 100
-        )
-        available_cash -= asset_holding * first_trade_dict[asset_key]
+        asset_holding = math.floor(asset_cash / first_trade_dict[asset_key] * 100) / 100
+        asset_cash -= asset_holding * first_trade_dict[asset_key]
         current_asset = self.__extract_asset_name(asset_key)
 
-        hedge_key = list(first_trade_dict)[
-            1
-        ]  # We know this is a short spy position, hence we will hardcode this
+        hedge_key = list(first_trade_dict)[1]
         hedge_holding = (
-            math.floor(
-                (available_cash * -hedge_allocation) / first_trade_dict[hedge_key] * 100
-            )
-            / 100
+            math.floor(-hedge_cash / first_trade_dict[hedge_key] * 100) / 100
         )
-        available_cash -= (
+        hedge_cash -= (
             hedge_holding * first_trade_dict[hedge_key]
         )  # Positive cashflow for opening short position
         current_hedge = self.__extract_asset_name(hedge_key)
+
+        available_cash = asset_cash + hedge_cash
 
         asset_history.append(current_asset)
         asset_holdings.append(asset_holding)
@@ -541,69 +538,63 @@ class TradingVolatility:
 
             # Non-empty dictionary means trade signal available
             if execude_trades:
-                for signal, open_price in execude_trades.items():
-                    # Sell current asset SHORT_VIX_ASSET/LONG_VIX)_ASSET
-                    if (long_vix_asset or short_vix_asset) and "sell" in signal:
+                sell_trades = {
+                    key: value for key, value in execude_trades.items() if "sell" in key
+                }
+                buy_trades = {
+                    key: value for key, value in execude_trades.items() if "buy" in key
+                }
+
+                for signal, open_price in sell_trades.items():
+                    if (
+                        long_vix_asset.lower() in signal
+                        or short_vix_asset.lower() in signal
+                    ):
                         sale_proceeds += asset_holding * open_price
                         available_cash += sale_proceeds
                         asset_holding = 0
                         sale_proceeds = 0.00
                         current_asset = None
 
-                    # Closing positions in hedge asset - cash negative for short position
-                    elif hedge_asset and "sell" in signal:
+                    else:
+                        # Closing positions in hedge asset - cash negative for short position
                         sale_proceeds += hedge_holding * open_price
                         available_cash += sale_proceeds
                         hedge_holding = 0
                         sale_proceeds = 0.00
                         current_hedge = None
 
-                    # Open positions in hedge asset
-                    elif hedge_asset and "buy" in signal:
-                        # Open short position in hedge asset
-                        if "short" in signal:
-                            hedge_holding = (
-                                math.floor(
-                                    (available_cash * -hedge_allocation)
-                                    / open_price
-                                    * 100
-                                )
-                                / 100
-                            )
-                            available_cash -= (
-                                hedge_holding * open_price
-                            )  # Positive cashflow for opening short position
-                            current_hedge = self.__extract_asset_name(signal)
+                asset_cash = available_cash * hedge_allocation
+                hedge_cash = asset_cash
 
+                for signal, open_price in buy_trades.items():
+                    # Open position in hedge asset
+                    if hedge_asset.lower() in signal:
+                        if "short" in signal:  # Open short position in hedge asset
+                            hedge_holding = (
+                                math.floor(-hedge_cash / open_price * 100) / 100
+                            )
+                            hedge_cash -= hedge_holding * open_price
+                            current_hedge = self.__extract_asset_name(signal)
                         else:
                             hedge_holding = (
-                                math.floor(
-                                    (available_cash * hedge_allocation)
-                                    / open_price
-                                    * 100
-                                )
-                                / 100
+                                math.floor(hedge_cash / open_price * 100) / 100
                             )
-                            available_cash -= (
-                                hedge_holding * open_price
-                            )  # Positive cashflow for opening short position
+                            hedge_cash -= hedge_holding * open_price
                             current_hedge = self.__extract_asset_name(signal)
 
                     else:
-                        asset_holding = (
-                            math.floor(
-                                (available_cash * hedge_allocation) / open_price * 100
-                            )
-                            / 100
-                        )
-                        available_cash -= asset_holding * open_price
+                        asset_holding = math.floor(asset_cash / open_price * 100) / 100
+                        asset_cash -= asset_holding * open_price
                         current_asset = self.__extract_asset_name(signal)
 
-                    asset_history.append(current_asset)
-                    asset_holdings.append(asset_holding)
-                    hedge_history.append(current_hedge)
-                    hedge_holdings.append(hedge_holding)
-                    cash_history.append(available_cash)
+                available_cash = asset_cash + hedge_cash
+
+                asset_history.append(current_asset)
+                asset_holdings.append(asset_holding)
+                hedge_history.append(current_hedge)
+                hedge_holdings.append(hedge_holding)
+                cash_history.append(available_cash)
 
             else:
                 # Empty dictionary, hence no trade for the trading day
@@ -632,5 +623,23 @@ class TradingVolatility:
                 "available_cash",
             ],
         )
+
+        res["asset_value"] = res.apply(
+            lambda x: self.data.loc[x.name][f"{x['asset_history']}_close"]
+            * x["asset_quantity"],
+            axis=1,
+        )
+        res["hedge_value"] = res.apply(
+            lambda x: self.data.loc[x.name][f"{x['hedge_history'][-3:]}_close"]
+            * x["hedge_quantity"],
+            axis=1,
+        )
+        res["portfolio_value"] = (
+            res["asset_value"] + res["hedge_value"] + res["available_cash"]
+        )
+        res["portfolio_returns"] = res["portfolio_value"].pct_change()
+        res["portfolio_cumulative_returns"] = (
+            1 + res["portfolio_returns"]
+        ).cumprod() - 1
 
         return res
