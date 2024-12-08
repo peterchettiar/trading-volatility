@@ -643,3 +643,240 @@ class TradingVolatility:
         ).cumprod() - 1
 
         return res
+
+    def __lslv_signals(
+        self,
+        long_vix_asset: str,
+        long_hedge_asset: str,
+        future_index_ticker: str,
+        spot_index_ticker: str,
+    ) -> pd.DataFrame:
+        """Generating the signals for the Hedged Long-Short Strategy"""
+
+        # Initialise signals dictionary with the keys based on asset names
+        asset_signals = [
+            f"{asset.lower()}"
+            for asset in [
+                f"{long_vix_asset}_25_sell_signal",
+                f"{long_hedge_asset}_75_sell_signal",
+                f"{long_vix_asset}_25_buy_signal",
+                f"{long_hedge_asset}_100_buy_signal",
+            ]
+        ]
+
+        signals = {signal: [] for signal in asset_signals}
+
+        # Track the position of each asset
+        positions = {
+            "long_vix_asset_25": False,
+            "long_hedge_asset_75": False,
+            "long_hedge_asset_100": False,
+        }
+
+        # Column names for asset open prices
+        long_vix_asset_open = f"{long_vix_asset.lower()}_open"
+        long_hedge_asset_open = f"{long_hedge_asset.lower()}_open"
+
+        df = self.__daily_basis(
+            vol_future_ticker=f"{future_index_ticker.lower()}_open",
+            vol_spot_ticker=f"{spot_index_ticker.lower()}_open",
+        )
+
+        for index in range(len(df)):
+            # Check for negative basis (buy LONG_VIX_ASSET condition)
+            if df["basis"][index] < 0:
+                if (
+                    not positions["long_vix_asset_25"]
+                    and not positions["long_hedge_asset_75"]
+                ):
+                    signals[f"{long_hedge_asset.lower()}_75_sell_signal"].append(
+                        df.iloc[index][long_hedge_asset_open]
+                    )
+                    signals[f"{long_vix_asset.lower()}_25_buy_signal"].append(
+                        df.iloc[index][long_vix_asset_open]
+                    )
+                    positions["long_hedge_asset_75"] = True
+                    positions["long_vix_asset_25"] = True
+                    positions["long_hedge_asset_100"] = False
+
+                else:
+                    # Maintain LONG_VIX_ASSET, no new signals
+                    signals[f"{long_vix_asset.lower()}_25_buy_signal"].append(np.nan)
+                    signals[f"{long_hedge_asset.lower()}_75_sell_signal"].append(np.nan)
+
+            else:
+                if not positions["long_hedge_asset_100"]:
+                    signals[f"{long_vix_asset.lower()}_25_sell_signal"].append(
+                        df.iloc[index][long_vix_asset_open]
+                    )
+                    signals[f"{long_hedge_asset.lower()}_100_buy_signal"].append(
+                        df.iloc[index][long_hedge_asset_open]
+                    )
+                    positions["long_vix_asset_25"] = False
+                    positions["long_hedge_asset_75"] = False
+                    positions["long_hedge_asset_100"] = True
+                else:
+                    # Maintain LONG_HEDGE_ASSET, no new signals
+                    signals[f"{long_hedge_asset.lower()}_100_buy_signal"].append(np.nan)
+
+            # Append NaNs for unused signals in each step
+            for key, value in signals.items():
+                if len(value) < index + 1:
+                    signals[key].append(np.nan)
+
+        # Create DataFrane with signals
+        res = pd.DataFrame(signals, index=df.index)
+
+        return res
+
+    def lslv_strategy(
+        self,
+        intial_capital: float,
+        long_vix_asset: str,
+        long_hedge_asset: str,
+        future_index_ticker: str,
+        spot_index_ticker: str,
+    ) -> pd.DataFrame:
+        """Simulate LSLV trading strategy based on buy and sell signals in the DataFrame"""
+
+        # Loading the signals dataframe
+        signals_df = self.__lslv_signals(
+            long_vix_asset=long_vix_asset,
+            long_hedge_asset=long_hedge_asset,
+            future_index_ticker=future_index_ticker,
+            spot_index_ticker=spot_index_ticker,
+        )
+
+        # Initial values
+        available_cash = intial_capital
+        asset_holding = 0
+        hedge_holding = 0
+        sale_proceeds = 0.00
+        current_asset = None
+        current_hedge = None
+        asset_history, asset_holdings, hedge_history, hedge_holdings, cash_history = (
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+
+        # Execute first day trade from dataframe
+        first_trade_dict = {
+            key: value
+            for key, value in signals_df.iloc[0].to_dict().items()
+            if not np.isnan(value) and key != f"{long_vix_asset.lower()}_25_sell_signal"
+        }
+
+        first_trade_key = list(first_trade_dict)[0]
+        hedge_holding = (
+            math.floor(available_cash / first_trade_dict[first_trade_key] * 100) / 100
+        )
+        available_cash -= hedge_holding * first_trade_dict[first_trade_key]
+        current_hedge = self.__extract_asset_name(first_trade_key)
+
+        asset_history.append(current_asset)
+        asset_holdings.append(asset_holding)
+        hedge_history.append(current_hedge)
+        hedge_holdings.append(hedge_holding)
+        cash_history.append(available_cash)
+
+        for index in range(1, len(signals_df)):
+            # Convert each row into a dictionary object
+            execude_trades = {
+                key: value
+                for key, value in signals_df.iloc[index].to_dict().items()
+                if not np.isnan(value)
+            }
+
+            # Non-empty dictionary means trade signal available
+            if execude_trades:
+                for signal, open_price in execude_trades.items():
+                    if "sell" in signal:
+                        if f"{long_hedge_asset.lower()}_75" in signal:
+                            sale_proceeds += (hedge_holding * 0.25) * open_price
+                            available_cash += sale_proceeds
+                            hedge_holding -= hedge_holding * 0.25
+                            sale_proceeds = 0.00
+                            current_hedge = self.__extract_asset_name(signal)
+                        else:
+                            # Selling asset
+                            sale_proceeds = asset_holding * open_price
+                            available_cash += sale_proceeds
+                            asset_holding = 0
+                            sale_proceeds = 0.00
+                            current_asset = None
+
+                    # Execute buy trades
+                    else:
+                        if long_vix_asset.lower() in signal:
+                            asset_holding = (
+                                math.floor(available_cash / open_price * 100) / 100
+                            )
+                            available_cash -= asset_holding * open_price
+                            current_asset = self.__extract_asset_name(signal)
+
+                        else:
+                            tmp = math.floor(available_cash / open_price * 100) / 100
+                            available_cash -= tmp * open_price
+                            hedge_holding += tmp
+                            current_hedge = self.__extract_asset_name(signal)
+
+                asset_history.append(current_asset)
+                asset_holdings.append(asset_holding)
+                hedge_history.append(current_hedge)
+                hedge_holdings.append(hedge_holding)
+                cash_history.append(available_cash)
+
+            else:
+                # Empty dictionary, hence no trade for the trading day
+                asset_history.append(current_asset)
+                asset_holdings.append(asset_holding)
+                hedge_history.append(current_hedge)
+                hedge_holdings.append(hedge_holding)
+                cash_history.append(available_cash)
+
+        res = pd.DataFrame(
+            list(
+                zip(
+                    asset_history,
+                    asset_holdings,
+                    hedge_history,
+                    hedge_holdings,
+                    cash_history,
+                )
+            ),
+            index=signals_df.index,
+            columns=[
+                "asset_history",
+                "asset_quantity",
+                "hedge_history",
+                "hedge_quantity",
+                "available_cash",
+            ],
+        )
+
+        res["asset_value"] = res.apply(
+            lambda x: (
+                self.data.loc[x.name][f"{x['asset_history'][:4]}_close"]
+                * x["asset_quantity"]
+                if x["asset_history"] is not None
+                else 0
+            ),
+            axis=1,
+        )
+        res["hedge_value"] = res.apply(
+            lambda x: self.data.loc[x.name][f"{x['hedge_history'][:3]}_close"]
+            * x["hedge_quantity"],
+            axis=1,
+        )
+        res["portfolio_value"] = (
+            res["asset_value"] + res["hedge_value"] + res["available_cash"]
+        )
+        res["portfolio_returns"] = res["portfolio_value"].pct_change()
+        res["portfolio_cumulative_returns"] = (
+            1 + res["portfolio_returns"]
+        ).cumprod() - 1
+
+        return res
