@@ -1,11 +1,11 @@
 """
-This project builds a modular library of volatility trading strategies based on 
-concepts from the research paper "Trading Strategies Based on the VIX Term Structure." 
+This project builds a modular library of volatility trading strategies based on
+concepts from the research paper "Trading Strategies Based on the VIX Term Structure."
 
 Focused on VIX term structure strategies, this project aims to reproduce and expand
-on the paper’s findings, making it easier to analyze, test, and integrate these 
+on the paper’s findings, making it easier to analyze, test, and integrate these
 strategies into an algorithmic trading setup. The modular design allows for
-individual strategy adaptation and offers a foundation for further development in 
+individual strategy adaptation and offers a foundation for further development in
 volatility-based algorithmic trading.
 
 For more information, refer to the original research paper:
@@ -96,7 +96,14 @@ class TradingVolatility:
                             right_index=True,
                         )
 
-        stock_data_df.index = stock_data_df.index.tz_convert(None)
+        # stock_data_df.index = stock_data_df.index.tz_convert(None)
+        if stock_data_df.index.tz is None:
+            stock_data_df.index = stock_data_df.index.tz_localize("UTC").tz_convert(
+                None
+            )
+        else:
+            stock_data_df.index = stock_data_df.index.tz_convert(None)
+
         stock_data_df.columns = [
             f"{ticker.lower()}_{pos.lower()}" for pos, ticker in stock_data_df.columns
         ]
