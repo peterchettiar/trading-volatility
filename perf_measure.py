@@ -71,3 +71,41 @@ class PerformanceMetrics:
         tmp = portfolio_return.copy()
 
         return tmp.std() * np.sqrt(252)
+
+    def maximum_drawdown(self, portfolio_value: pd.Series) -> float:
+        """
+        Maximum drawdown is the maximum observed loss from a peak to a trough of a portfolio,
+        before a new peak is attained.
+        """
+
+        tmp = portfolio_value.copy()
+
+        # Calculate the cumulative maximum
+        cumulative_max = tmp.cummax()
+
+        # Calculate the drawdown
+        drawdown = (tmp - cumulative_max) / cumulative_max
+
+        # Return the maximum drawdown
+        return drawdown.min()
+
+    def annualised_sharpe_ratio(
+        self, portfolio_returns: pd.Series, risk_free_annual: float = 0.04
+    ) -> float:
+        """
+        Excess return of portfolio per unit of total risk (i.e. standard deviation)
+        """
+
+        returns = portfolio_returns.copy()
+
+        # Converting annual risk free to daily
+        risk_free_daily = (1 + risk_free_annual) ** (1 / 252) - 1
+
+        # Calculate excess returns
+        excess_returns = returns - risk_free_daily
+
+        daily_sharpe = excess_returns.mean() / returns.std()
+
+        annualised_sharpe = daily_sharpe * np.sqrt(252)
+
+        return annualised_sharpe
